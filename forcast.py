@@ -1,4 +1,4 @@
-
+## Imports required packages
 import time
 import numpy as np
 import pandas as pd
@@ -8,19 +8,22 @@ from influxdb import InfluxDBClient
 from datetime import datetime, timedelta
 
 
-# Get trained model
+# Get the pre-trained model that was trained in buildforcastmodel
 model = joblib.load("/home/u700851/edgeai_project/Coursework/cpu_temp_30min_forecast_model.joblib")
+
+# Loads this in
 meta = np.load("/home/u700851/edgeai_project/Coursework/cpu_temp_forecast_meta.npz", allow_pickle=True)
+
 
 N_LAGS = int(meta["n_lags"])
 FEATURE_COLS = list(meta["feature_cols"])
 
-# FROM
+# Names of influx DB database (colleting from)
 SOURCE_DB_NAME = "cpu_data"           
 SOURCE_MEASUREMENT = "system_monitor" 
 
 
-# TO
+# Names of databse that data is saved to and MQTT name
 FORECAST_DB_NAME = "PersonDetection"  
 FORECAST_MEASUREMENT = "cpu_temp_forecast"
 
@@ -28,18 +31,21 @@ MQTT_TOPIC = "pi/vision/forcast"
 
 
 
-
+# Sets up MQTT
 mqtt_client = mqtt.Client()
 mqtt_client.username_pw_set(username="user1", password="test")
 mqtt_client.connect("localhost", 1883, 60)
 
+# Creates connection of the database from 
 source_db = InfluxDBClient(host="localhost", port=8086)
 source_db.switch_database(SOURCE_DB_NAME)
 
+# connectecrs to the to database
 forecast_db = InfluxDBClient(host="localhost", port=8086)
 forecast_db.switch_database(FORECAST_DB_NAME)
 
 
+### Gets the last 30 minutes of data 
 def get_latest_minutes(n):
     query = f"""
     SELECT cpu_temp, cpu_load, mem_usage
@@ -51,12 +57,16 @@ def get_latest_minutes(n):
     df = pd.DataFrame(points[::-1])  
     return df
 
+
+# builds the x data 
 def build_features(df):
     vals = []
     for col in FEATURE_COLS:
         vals.extend(df[col].values)
     return np.array(vals).reshape(1, -1)
 
+
+# once the forcast is made then write it to influx DB 
 def write_forecast_to_influx(value):
     future_time = datetime.utcnow() + timedelta(minutes=30)
     json_body = [{
@@ -89,7 +99,7 @@ while(True):
    
       write_forecast_to_influx(prediction)
 
-
+      ## braudcasts it using MQTT
       mqtt_client.publish(MQTT_TOPIC, str({"forecast_temp_30min": prediction}))
 
       print("Forecast: ")
@@ -97,5 +107,6 @@ while(True):
   
   except Exception as e:
     print(f"Error occurred: {e}")
-  
+
+  # waits 60 seconds before making the next prediction
   time.sleep(60)
